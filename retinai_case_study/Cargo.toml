@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 async-walkdir = "2.0.0"
+clap = { version = "4.5.13", features = ["derive"] }
 dicom = "0.7.0"
 futures-lite = "2.3.0"
 walkdir = "2.5.0"
