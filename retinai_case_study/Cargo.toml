@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+async-walkdir = "2.0.0"
 dicom = "0.7.0"
+futures-lite = "2.3.0"
 walkdir = "2.5.0"
