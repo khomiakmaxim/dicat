@@ -69,7 +69,7 @@ use dicat::{prompt_parser::Args, App};
 /// Id xxxxx,Maksym Khomiak,123/321/a.dcm
 /// Id xxxxx,Maksym Khomiak,123/321/a.dcm
 /// Id xxxxx,Maksym Khomiak,123/321/a.dcm
-/// Id yyyyy,Oleh Tiahnybok,321/321/b.dcm
+/// Id yyyyy,Oleh Tiahnybok,321/321/b.dicom
 ///
 ///
 fn main() {
