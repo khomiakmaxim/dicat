@@ -1,2 +1,2 @@
-# retinai_case_study
-CLI utility that catalogs DICOM files
+# dicat
+Command line utility that catalogs DICOM files
