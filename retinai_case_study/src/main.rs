@@ -1,5 +1,8 @@
 use clap::Parser;
-use std::{borrow::Cow, path::PathBuf};
+use dicom::{dictionary_std::tags, object::open_file};
+use jwalk::Parallelism;
+use rayon::prelude::*;
+use std::{collections::HashMap, path::PathBuf};
 
 /// Application which catalogs DICOM files
 #[derive(Parser, Debug)]
@@ -10,44 +13,63 @@ struct Args {
     // TODO: Add meaningful subcommands as well
 }
 
-use dicom::{dictionary_std::tags, object::open_file};
-use walkdir::WalkDir;
+#[derive(Debug, Hash, Eq, PartialEq)]
+struct Person {
+    name: String,
+    id: String,
+}
 
-// use async_walkdir::WalkDir;
-// use futures_lite::future::block_on;
-// use futures_lite::stream::StreamExt;
+struct App;
 
-#[allow(unreachable_code)]
+impl App {
+    fn start(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+        let v: Vec<(Person, PathBuf)> = jwalk::WalkDir::new(path)
+            .parallelism(Parallelism::RayonNewPool(8))
+            .into_iter()
+            .par_bridge()
+            .filter_map(|dir_entry_result| {
+                let dir_entry = dir_entry_result.ok()?;
+                if dir_entry.file_type().is_file() {
+                    let path = dir_entry.path();
+
+                    let Ok(obj) = open_file(&path) else {
+                        return None;
+                    };
+
+                    let file_name = path.as_os_str().to_str().unwrap();
+                    let patient_name = obj.element(tags::PATIENT_NAME).unwrap().to_str().unwrap();
+                    let patient_id = obj.element(tags::PATIENT_ID).unwrap().to_str().unwrap();
+
+                    let person = Person {
+                        name: patient_name.into(),
+                        id: patient_id.into(),
+                    };
+
+                    Some((person, PathBuf::from(file_name)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let mut map: HashMap<Person, Vec<PathBuf>> =
+            v.into_iter()
+                .fold(HashMap::new(), |mut acc, (person, file)| {
+                    acc.entry(person).or_default().push(file);
+                    acc
+                });
+
+        map.par_iter_mut().for_each(|(_, files)| {
+            files.sort();
+        });
+
+        Ok(())
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let Args { path } = Args::parse();
-
-    for entry in WalkDir::new(path) {
-        let entry = entry.unwrap();
-
-        if entry.file_type().is_dir() {
-            continue;
-        }
-
-        let path = entry.path();
-        let Ok(obj) = open_file(path) else {
-            continue;
-        };
-
-        let file_name = path.as_os_str().to_str().unwrap();
-        let patient_name = obj.element(tags::PATIENT_NAME)?.to_str()?;
-        let patient_id = obj.element(tags::PATIENT_ID)?.to_str()?;
-
-        let patient_clinic = match obj.element(tags::INSTITUTION_NAME) {
-            Ok(inner) => inner.to_str()?,
-            Err(_) => Cow::Borrowed("No clinic name"),
-        };
-
-        println!("------------------------------------------");
-        println!(
-            "{}, {}, {}, {}",
-            file_name, patient_name, patient_clinic, patient_id
-        );
-    }
+    App::start(path)?;
 
     Ok(())
 }
