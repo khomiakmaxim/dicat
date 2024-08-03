@@ -1,7 +1,0 @@
-/.idea/
-/.vscode/
-/*.iml
-.DS_Store
-
-/target/
-/test_dicom_files/
