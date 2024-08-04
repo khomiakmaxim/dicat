@@ -26,10 +26,8 @@ pub(crate) mod options {
     pub struct RestructOptions {
         // NB: In the future, it would be reasonable to define and use struct with common options via #[flatten]
         pub path: PathBuf,
-        #[arg(short, long)]
-        pub zip: bool, // TODO: Подумати за це , бо воно якось тупо виглядає
-        #[arg(conflicts_with = "zip")]
-        pub zip_only: bool,
+        #[arg(long)]
+        pub person_id: Option<String>, // TODO, якщо все встигатиму, то можна тут пару тіпів приймати буде через якийсь розділювач, навіть
     }
 
     #[derive(clap::Args, Debug, Clone)]
@@ -43,5 +41,7 @@ pub(crate) mod options {
         #[arg(long)]
         /// Keeps the original directory hierarchy unchanged
         pub keep_structure: bool,
+        #[arg(long)]
+        pub person_id: Option<String>, // TODO винести в спільні | в Павла є на прикладі, як таке можна робити
     }
 }
