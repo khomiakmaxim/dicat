@@ -1,13 +1,7 @@
 use prompt_parser::{Args, Command};
 
-mod operation;
+pub mod operation;
 pub mod prompt_parser;
-
-#[derive(Debug, Eq, PartialEq, Hash)]
-struct Person {
-    name: String,
-    id: String,
-}
 
 pub struct App;
 
@@ -18,7 +12,7 @@ impl App {
             Command::Catalog(catalog_options) => {
                 operation::catalog(catalog_options)?;
             }
-            Command::Resturct(restruct_options) => {
+            Command::Restruct(restruct_options) => {
                 operation::restruct(restruct_options)?;
             }
         }

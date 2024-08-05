@@ -4,40 +4,59 @@ use prettytable::{format, table};
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
-use crate::{
-    prompt_parser::options::{CatalogOptions, RestructOptions},
-    Person,
-};
+use crate::prompt_parser::options::{CatalogOptions, RestructOptions};
 
-// Relies on underneath paths being sorted as it's type invariant
-pub(crate) struct SortedPaths(Vec<PathBuf>); // зробити його non-empty?
+/// Represents a person's metadata in a DICOM file.
+#[derive(Debug, Eq, PartialEq, Hash)]
+struct Person {
+    name: String, // TODO: Think of OsString?
+    id: String,
+}
+
+/// Relies on underneath paths being sorted in the topological order as it's invariant.
+/// ## Usage
+/// **Example**
+/// ````
+/// use std::path::PathBuf;
+/// use dicat::operation::SortedPaths;
+///
+/// let vec = vec![PathBuf::from("drive/db/a.txt"), PathBuf::from("drive/da/b.txt")];
+/// let sorted_paths = SortedPaths::from(vec);
+/// let inner = sorted_paths.into_inner();
+/// assert_eq!(vec![PathBuf::from("drive/da/b.txt"), PathBuf::from("drive/db/a.txt")], inner);
+/// ````
+pub struct SortedPaths(Vec<PathBuf>); // TODO: Це навіть може бути якийсь Cow?
 
 impl SortedPaths {
-    // TODO: Це ок?
-    fn from<I: Into<Vec<PathBuf>>>(paths: I) -> Self {
+    pub fn from<I: Into<Vec<PathBuf>>>(paths: I) -> Self {
         let mut paths = paths.into();
         paths.sort();
         Self(paths)
     }
+
+    pub fn into_inner(self) -> Vec<PathBuf> {
+        self.0
+    }
 }
 
+// TODO: Це треба гарненько переписати собі
 impl std::fmt::Display for SortedPaths {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self(paths) = self;
 
         if paths.is_empty() {
-            write!(f, "")
+            writeln!(f)
         } else {
             let mut components = split_path_to_components(&paths[0]);
             let mut tab_count = 0;
 
             for comp in &components {
                 let tabs = ".".repeat(tab_count);
-                write!(f, "\n")?;
+                writeln!(f)?;
                 write!(f, "{tabs}")?;
                 write!(f, "|____")?;
                 write!(f, "{comp}")?;
@@ -68,7 +87,7 @@ impl std::fmt::Display for SortedPaths {
                     let comp = new_path_components[i].as_ref();
 
                     let tabs = ".".repeat(tab_count);
-                    write!(f, "\n")?;
+                    writeln!(f)?;
                     write!(f, "{tabs}")?;
                     write!(f, "|___")?;
                     write!(f, "{comp}")?;
@@ -88,77 +107,69 @@ impl std::fmt::Display for SortedPaths {
 pub fn catalog(options: CatalogOptions) -> Result<(), Box<dyn std::error::Error>> {
     let CatalogOptions {
         path,
-        as_csv,
         keep_structure,
-        person_id,
+        ids,
     } = options;
 
+    // dbg!(ids);
+
     if keep_structure {
-        if as_csv {
-        } else {
-        }
+        // Використати звичайний walkdir тут?
+        // + врахувати, що то кожен тіп може собі хотіти бути окремо
     } else {
-        let pairs: Vec<(Person, PathBuf)> = vec![];
-        // TODO: Use sequential walkdir here
+        // Taken from github/examples...
+        let table_format = format::FormatBuilder::new()
+            .column_separator('│')
+            .borders('│')
+            .separators(
+                &[format::LinePosition::Top],
+                format::LineSeparator::new('─', '┬', '┌', '┐'),
+            )
+            .separators(
+                &[format::LinePosition::Intern],
+                format::LineSeparator::new('─', '┼', '├', '┤'),
+            )
+            .separators(
+                &[format::LinePosition::Bottom],
+                format::LineSeparator::new('─', '┴', '└', '┘'),
+            )
+            .padding(1, 1)
+            .build();
 
-        let map = get_structure(path)?;
-        if as_csv {
-            unimplemented!();
-        } else {
-            let table_format = format::FormatBuilder::new()
-                .column_separator('│')
-                .borders('│')
-                .separators(
-                    &[format::LinePosition::Top],
-                    format::LineSeparator::new('─', '┬', '┌', '┐'),
-                )
-                .separators(
-                    &[format::LinePosition::Intern],
-                    format::LineSeparator::new('─', '┼', '├', '┤'),
-                )
-                .separators(
-                    &[format::LinePosition::Bottom],
-                    format::LineSeparator::new('─', '┴', '└', '┘'),
-                )
-                .padding(1, 1)
-                .build();
+        let map = get_structure(path, ids)?;
 
-            for (person, paths) in map {
-                let Person { name, id } = person;
+        for (person, paths) in map {
+            const NOT_LISTED: &str = "[NOT LISTED]";
+            let Person { name, id } = person;
 
-                let name = if name.is_empty() {
-                    "(NOT LISTED)".to_string() // const?
-                } else {
-                    name
-                };
+            let name = if name.is_empty() {
+                NOT_LISTED.to_string()
+            } else {
+                name
+            };
 
-                let id = format!("ID: {}", id);
-                let name = format!("Full Name: {}", name);
-                // let person_info = format!("ID({}) {}", id, name);
+            let id = if id.is_empty() {
+                NOT_LISTED.to_string()
+            } else {
+                id
+            };
 
-                // let hierarchy =
+            let id = format!("ID: {}", id);
+            let name = format!("Full Name: {}", name);
 
-                // Зробити собі щось таке тут
-                // let tree = paths);
-
-                let mut table = table!([FG -> id], [FG -> name], [paths]);
-                table.set_format(table_format);
-                table.printstd();
-            }
-        }
+            let mut table = table!([FG -> id], [FG -> name], [paths]);
+            table.set_format(table_format);
+            table.printstd();
+        };
     }
 
     Ok(())
 }
 
 pub fn restruct(options: RestructOptions) -> Result<(), Box<dyn std::error::Error>> {
-    let RestructOptions { path, person_id } = options;
+    let RestructOptions { path, ids } = options;
 
-    let structure = get_structure(path)?;
-    // Now, crate a new directory with the corresponding folders and paths
-
-    // TODO: In the future I'd like to extend this to clinics as well????
-
+    let _structure = get_structure(path, ids)?;
     Ok(())
 }
 
@@ -166,7 +177,10 @@ pub fn restruct(options: RestructOptions) -> Result<(), Box<dyn std::error::Erro
 // TODO: Think of someting way more efficient here
 fn get_structure(
     path: PathBuf,
+    person_ids: Option<Vec<String>>,
 ) -> Result<HashMap<Person, SortedPaths>, Box<dyn std::error::Error>> {
+    let person_ids: HashSet<String> = person_ids.unwrap_or(vec![]).into_iter().collect();
+
     let v: Vec<(Person, PathBuf)> = jwalk::WalkDir::new(path)
         .parallelism(Parallelism::RayonNewPool(8)) // TODO: move this out to config
         .into_iter()
@@ -182,16 +196,21 @@ fn get_structure(
                     return None;
                 };
 
-                let file_name = path.as_os_str().to_str().unwrap();
-                let patient_name = obj.element(tags::PATIENT_NAME).unwrap().to_str().unwrap();
                 let patient_id = obj.element(tags::PATIENT_ID).unwrap().to_str().unwrap();
 
-                let person = Person {
-                    name: patient_name.into(),
-                    id: patient_id.into(),
-                };
-
-                Some((person, PathBuf::from(file_name)))
+                if person_ids.contains(patient_id.as_ref()) {
+                    let file_name = path.as_os_str().to_str().unwrap();
+                    let patient_name = obj.element(tags::PATIENT_NAME).unwrap().to_str().unwrap();
+    
+                    let person = Person {
+                        name: patient_name.into(),
+                        id: patient_id.into(),
+                    };
+    
+                    Some((person, PathBuf::from(file_name)))
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -228,29 +247,6 @@ where
     path.components()
         .map(|component| component.as_os_str().to_string_lossy())
         .collect()
-}
-
-#[derive(Default)]
-struct DirTree {
-    nodes: Vec<(String, Vec<String>)>, // TODO: Може тут якось використовувати це OsString натомість???
-}
-
-impl std::fmt::Display for DirTree {
-    // DFS/BFS???
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let directory = r#"
-    path:       
-    |_one:      
-    |  |__two.d  .............................................................
-    |  |__1.dcm .................................................
-    |_two.dcm   
-    |_twoi.dcm  ,,,,,,,,,,,,,,,,,,,,,,,,,,
-    |_x:        
-    | |_c.dcm  ............................. 
-    |_c.dcm     
-        "#;
-        write!(f, "{directory}")
-    }
 }
 
 // impl DirTree {

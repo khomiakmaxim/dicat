@@ -1,47 +1,45 @@
 use clap::{command, Parser};
 use options::{CatalogOptions, RestructOptions};
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[command(version, about)]
-/// dicat is a command line utility for cataloging files of DICOM standard
+/// 'dicat' is a command line utility for cataloging files of DICOM standard
 pub struct Args {
     #[command(subcommand)]
     pub command: Command,
 }
 
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser)]
 #[command(version, about)]
 pub enum Command {
-    /// Catalogs DICOM files in the folder and prints the result to the stdout
+    /// Catalog DICOM files in the directory and print the result to the stdout
     Catalog(CatalogOptions),
-    // TODO: Write more text here
-    /// Builds a new hierarchy with restructured structure as in the catalog
-    Resturct(RestructOptions),
+    /// Create a new directory with restructured structure as in a catalog
+    Restruct(RestructOptions),
 }
 
 pub(crate) mod options {
     use std::path::PathBuf;
 
-    #[derive(clap::Args, Debug, Clone)]
+    #[derive(clap::Args)]
     pub struct RestructOptions {
-        // NB: In the future, it would be reasonable to define and use struct with common options via #[flatten]
+        /// Path to the directory, which will be restructured
         pub path: PathBuf,
-        #[arg(long)]
-        pub person_id: Option<String>, // TODO, якщо все встигатиму, то можна тут пару тіпів приймати буде через якийсь розділювач, навіть
+        /// Person IDs(separated by `,`), which DICOM files will be restructured in a new directory
+        #[arg(long, value_delimiter = ',')]
+        pub ids: Option<Vec<String>>,
     }
 
-    #[derive(clap::Args, Debug, Clone)]
+    #[derive(clap::Args)]
     pub struct CatalogOptions {
         #[arg(short, long)]
-        /// Path to the directory
+        /// Path to the directory, which fiels will be viewed in a catalog format(default format can be overwritten by specifying `--keep-structure` flag)
         pub path: PathBuf,
-        /// When used, changes the output to be in the .csv format
-        #[arg(long)] // TODO: Це те саме, що без нічого?
-        pub as_csv: bool,
-        #[arg(long)]
-        /// Keeps the original directory hierarchy unchanged
+        #[arg(short, long)]
+        /// Keep the original directory hierarchy unchanged
         pub keep_structure: bool,
-        #[arg(long)]
-        pub person_id: Option<String>, // TODO винести в спільні | в Павла є на прикладі, як таке можна робити
+        /// Person IDs(separated by `,`), which DICOM files will be viewed in a catalog format
+        #[arg(long, value_delimiter = ',')]
+        pub ids: Option<Vec<String>>, // TODO: Think of using OsString here
     }
 }
