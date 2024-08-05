@@ -24,6 +24,7 @@ pub(crate) mod options {
     #[derive(clap::Args)]
     pub struct RestructOptions {
         /// Path to the directory, which will be restructured
+        #[arg(short, long)]
         pub path: PathBuf,
         /// Person IDs(separated by `,`), which DICOM files will be restructured in a new directory
         #[arg(long, value_delimiter = ',')]

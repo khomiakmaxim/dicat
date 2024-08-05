@@ -6,7 +6,9 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
+    sync::Arc,
 };
+use tokio::{self, sync::Semaphore, task::JoinSet};
 
 use crate::prompt_parser::options::{CatalogOptions, RestructOptions};
 
@@ -83,9 +85,7 @@ impl std::fmt::Display for SortedPaths {
                 //dbg!(same_components_count);
 
                 tab_count = same_components_count;
-                for i in same_components_count..new_path_components.len() {
-                    let comp = new_path_components[i].as_ref();
-
+                for comp in new_path_components.iter().skip(same_components_count) {
                     let tabs = ".".repeat(tab_count);
                     writeln!(f)?;
                     write!(f, "{tabs}")?;
@@ -104,6 +104,39 @@ impl std::fmt::Display for SortedPaths {
     }
 }
 
+fn traverse_dicom_files_to_csv<A: AsRef<Path>>(path: A, person_ids: Option<Vec<String>>) -> Result<(), Box<dyn std::error::Error>> {
+    let walkdir_iter = walkdir::WalkDir::new(path.as_ref());
+    let person_ids: HashSet<String> = person_ids.unwrap_or_default().into_iter().collect();
+
+    println!("Person's full name, person's ID, path");
+    for entry in walkdir_iter {
+        let dir_entry = entry.ok().unwrap();
+            if dir_entry.file_type().is_file() {
+                let path = dir_entry.path();
+
+                let Ok(obj) = open_file(&path) else {
+                    continue;
+                };
+
+                let patient_id = obj.element(tags::PATIENT_ID).unwrap().to_str().unwrap();
+                if person_ids.is_empty() || person_ids.contains(patient_id.as_ref()) {
+                    let file_name = path.as_os_str().to_str().unwrap();
+                    let patient_name = obj.element(tags::PATIENT_NAME).unwrap().to_str().unwrap();
+
+                    // let person = Person {
+                    //     name: patient_name.into(),
+                    //     id: patient_id.into(),
+                    // };
+                    
+                    println!("{},{},{}", patient_name, patient_id, path.to_string_lossy());
+                    // Some((person, PathBuf::from(file_name)))
+                }
+            }
+    }
+
+    Ok(())
+}
+
 pub fn catalog(options: CatalogOptions) -> Result<(), Box<dyn std::error::Error>> {
     let CatalogOptions {
         path,
@@ -113,11 +146,13 @@ pub fn catalog(options: CatalogOptions) -> Result<(), Box<dyn std::error::Error>
 
     // dbg!(ids);
 
-    if keep_structure {
-        // Використати звичайний walkdir тут?
-        // + врахувати, що то кожен тіп може собі хотіти бути окремо
+    let as_csv = keep_structure;
+
+    if as_csv {
+        traverse_dicom_files_to_csv(path, ids)?;        
     } else {
         // Taken from github/examples...
+        dbg!(1);
         let table_format = format::FormatBuilder::new()
             .column_separator('│')
             .borders('│')
@@ -160,16 +195,73 @@ pub fn catalog(options: CatalogOptions) -> Result<(), Box<dyn std::error::Error>
             let mut table = table!([FG -> id], [FG -> name], [paths]);
             table.set_format(table_format);
             table.printstd();
-        };
+        }
     }
 
     Ok(())
 }
 
 pub fn restruct(options: RestructOptions) -> Result<(), Box<dyn std::error::Error>> {
+    const MAX_SEMAPHORE_PERMITS: usize = 100; // Було б дуже файно то додати собі ще
+
     let RestructOptions { path, ids } = options;
 
-    let _structure = get_structure(path, ids)?;
+    let structure = get_structure(path, ids)?;
+
+    if !structure.is_empty() {
+        dbg!(structure.len());
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("Failed building the Runtime")
+            .block_on(async move {
+                // let mut semaphore = Semaphore::new(MAX_SEMAPHORE_PERMITS);
+
+                let mut handles = vec![];
+                let folder_name = PathBuf::from(format!(
+                    "test_restructured{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                ));
+
+                tokio::fs::create_dir(&folder_name).await.unwrap();
+
+                for (person, sorted_paths) in structure {
+                    // let permit = semaphore.acquire().await.unwrap();
+
+
+                    let mut persons_dir = folder_name.clone();
+                    handles.push(tokio::task::spawn(async move {
+                        // let name = "some_random";
+
+                        persons_dir.push(&person.id);
+                        dbg!(&persons_dir);
+                        tokio::fs::create_dir(&persons_dir).await.unwrap();
+
+                        // println!("\n{}\n\n, {}", person.id, sorted_paths);
+
+                        let SortedPaths(sorted_paths) = sorted_paths;
+
+                        for path in sorted_paths {
+                            let filename = path.file_name().unwrap().to_string_lossy();
+
+                            let mut new_path = PathBuf::from(&persons_dir);
+                            new_path.push(filename.as_ref());
+
+                            tokio::fs::copy(path, new_path).await.unwrap();
+                        }
+
+                        // drop(permit);
+                    }));
+                }
+
+                futures::future::join_all(handles).await;
+                println!("Restructured files into {}", folder_name.to_string_lossy());
+            });
+    }
+
     Ok(())
 }
 
@@ -179,7 +271,8 @@ fn get_structure(
     path: PathBuf,
     person_ids: Option<Vec<String>>,
 ) -> Result<HashMap<Person, SortedPaths>, Box<dyn std::error::Error>> {
-    let person_ids: HashSet<String> = person_ids.unwrap_or(vec![]).into_iter().collect();
+    // lazy static?
+    let person_ids: HashSet<String> = person_ids.unwrap_or_default().into_iter().collect();
 
     let v: Vec<(Person, PathBuf)> = jwalk::WalkDir::new(path)
         .parallelism(Parallelism::RayonNewPool(8)) // TODO: move this out to config
@@ -197,16 +290,15 @@ fn get_structure(
                 };
 
                 let patient_id = obj.element(tags::PATIENT_ID).unwrap().to_str().unwrap();
-
-                if person_ids.contains(patient_id.as_ref()) {
+                if person_ids.is_empty() || person_ids.contains(patient_id.as_ref()) {
                     let file_name = path.as_os_str().to_str().unwrap();
                     let patient_name = obj.element(tags::PATIENT_NAME).unwrap().to_str().unwrap();
-    
+
                     let person = Person {
                         name: patient_name.into(),
                         id: patient_id.into(),
                     };
-    
+
                     Some((person, PathBuf::from(file_name)))
                 } else {
                     None
@@ -239,7 +331,7 @@ fn get_structure(
 
 // TODO: Write documentation
 // TODO: Think of different OSs here
-fn split_path_to_components<'a, A>(path: &'a A) -> Vec<Cow<'a, str>>
+fn split_path_to_components<A>(path: &A) -> Vec<Cow<'_, str>>
 where
     A: AsRef<Path> + ?Sized,
 {

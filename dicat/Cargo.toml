@@ -13,4 +13,6 @@ futures-lite = "2.3.0"
 jwalk = "0.8.1"
 prettytable = "0.10.0"
 rayon = "1.10.0"
+tokio = { version = "1.39.2", features = ["fs", "rt-multi-thread", "sync"] }
+tokio-scoped = "0.2.0"
 walkdir = "2.5.0"
