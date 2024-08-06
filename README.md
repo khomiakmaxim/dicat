@@ -46,7 +46,7 @@ You can check the structure of the newely created directory via the `catalog` co
 ![image](https://github.com/user-attachments/assets/f695666a-6156-4048-8335-21870e606422)
 
 # Design issues
-* At this point, there's no possibility to provide a path to the directory where you want to `restruct` your file
+* At this point, there's no possibility to provide a path to the directory where you want to `restruct` your file to
 
 # Codebase issues
 * It would be better to decouple parts, which scaffold the `catalog` structure, and which print it to the stdout by introducing a trait similar to `WriteTree`. Currently, that would require a codebase to be refactored
