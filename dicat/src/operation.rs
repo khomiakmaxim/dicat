@@ -1,10 +1,12 @@
 use dicom::{dictionary_std::tags, object::open_file};
+use indicatif::{ProgressBar, ProgressState, ProgressStyle};
 use prettytable::{format, table};
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     ffi::OsString,
+    fmt::Write,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -19,7 +21,7 @@ use crate::{
 pub fn catalog(options: CatalogOptions) -> CliResult<()> {
     let CatalogOptions { path, as_csv, ids } = options;
 
-    let start_time = std::time::SystemTime::now();
+    // let start_time = std::time::SystemTime::now();
     if as_csv {
         // TODO: It would be reasonable to log inner errors as well
         traverse_sequentially_and_print_csv(path, ids).map_err(|_err| CliError::GeneralError)?;
@@ -66,12 +68,12 @@ pub fn catalog(options: CatalogOptions) -> CliResult<()> {
         }
     }
 
-    let end_time = std::time::SystemTime::now();
-    let duration = end_time
-        .duration_since(start_time)
-        .expect("Time went backwards");
+    // let end_time = std::time::SystemTime::now();
+    // let duration = end_time
+    //     .duration_since(start_time)
+    //     .expect("Time went backwards");
 
-    println!("Catalog bench: {:?}", duration);
+    // println!("Catalog bench: {:?}", duration);
 
     Ok(())
 }
@@ -149,6 +151,18 @@ async fn copy_files_in_tasks(
     let files_per_task = files_amount / num_tasks;
     let remainder = files_amount % num_tasks;
 
+    println!("Restructuring...");
+
+    let pb = ProgressBar::new(files_amount as u64);
+    pb.set_style(
+        ProgressStyle::with_template("[{elapsed_precise}] [{wide_bar:.blue}] ({eta})")
+            .unwrap()
+            .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
+                write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap()
+            })
+            .progress_chars("#>-"),
+    );
+
     // Distribute file chunks evenly between tasks
     for (i, chunk) in chunk_sizes.iter_mut().enumerate().take(num_tasks) {
         *chunk = files_per_task + if i < remainder { 1 } else { 0 };
@@ -164,6 +178,8 @@ async fn copy_files_in_tasks(
         let files_to_copy: Vec<(PathBuf, Person)> = pairs_iter.by_ref().take(chunk_size).collect();
 
         let handle = tokio::spawn(async move {
+            let files_in_chunk = files_to_copy.len();
+
             for (path_buf, person) in files_to_copy {
                 let mut persons_path = root_path_owned.clone();
                 persons_path.push(&person.id);
@@ -174,11 +190,29 @@ async fn copy_files_in_tasks(
 
                 tokio::fs::copy(&path_buf, &persons_path).await.unwrap(); // TODO: Remove unwrap()
             }
+
+            files_in_chunk
         });
         task_handles.push(handle);
     }
 
-    futures::future::join_all(task_handles).await;
+    let mut files_copied = 0;
+
+    for handle in task_handles {
+        let files_added = handle.await.unwrap();
+
+        while files_copied < files_amount {
+            files_copied += files_added;
+            // let new = min( + 1200, total_size);
+            // downloaded = new;
+            pb.set_position(files_copied as u64);
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            // thread::sleep(Duration::from_millis(12));
+        }
+    }
+
+    println!("Restructured into '{}'", root_path.to_string_lossy());
+    // futures::future::join_all(task_handles).await;
 }
 
 /// For a given [`path`], traverse the directory in parallel threads and scaffold

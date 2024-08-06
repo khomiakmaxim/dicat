@@ -34,7 +34,7 @@ pub(crate) mod options {
     #[derive(clap::Args)]
     pub struct CatalogOptions {
         #[arg(short, long)]
-        /// Path to the directory, which fiels will be viewed in a catalog format(default format can be overwritten by specifying `--keep-structure` flag)
+        /// Path to the directory, which fiels will be viewed in a catalog format
         pub path: PathBuf,
         #[arg(short, long)]
         /// Print names, IDs, and paths of DICOM files in a directory in .CSV format, preserving the original directory hierarchy
