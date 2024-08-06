@@ -17,11 +17,13 @@ cargo t
 target/debug/dicat --help
 ``
 ![image](https://github.com/user-attachments/assets/16c7e81a-3068-472f-b1b6-30033fc81b3f)
+
 ## 4. Try to run `catalog` command on a directory, which contains `DICOM` files
 ``
 target/debug/dicat catalog --path 
 ``
 ![image](https://github.com/user-attachments/assets/80c241fd-4e91-4e1e-b880-2fae8145e455)
+
 For each patient which `DICOM` files were in the original folder, a rectangle with original directory sub-tree will be printed to the console
 
 ## 5. You can choose a subset of patients via providing `--ids` option and listing patient's IDs separated by `,`
@@ -37,12 +39,16 @@ target/debug/dicat catalog --path --as-csv
 ``
 ![image](https://github.com/user-attachments/assets/b37b1617-8c53-4fc3-b877-1b89374610ab)
 
+You can use this with `pipes`, when running on `Unix`-like systems 
+
 ## 7. You can also restructure the `DICOM` files from the directory into a new one, which will contain separate directories for each patient with their `DICOM` files directly in them
 ``
 target/debug/dicat restruct --path
 ``
 ![image](https://github.com/user-attachments/assets/dba6c817-d73b-4b56-81c3-a6332eb689b1)
+
 You can check the structure of the newely created directory via the `catalog` command
+
 ![image](https://github.com/user-attachments/assets/f695666a-6156-4048-8335-21870e606422)
 
 # Design issues
