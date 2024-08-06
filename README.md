@@ -1,4 +1,4 @@
-# Dicat
+# Dicat - DICOM Catalog
 Command line utility that catalogs DICOM files
 
 #Usage
