@@ -61,3 +61,4 @@ You can even check the structure of the newely created directory via the `catalo
 
 # Dependency notes:
 * For directory traversal I use `walkdir` for sequential and `jwalk` for parallel cases. Since both of them aren't widely known and are currently only being supported, I'd consider to fork them and work with the forked versions, in order to avoid possible issues in the future
+* For retreiving information about each patient I use `dicom` crate, which loads the entire contents of the file into the memory, which is not currently necessary
