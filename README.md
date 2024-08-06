@@ -16,13 +16,13 @@ cargo t
 ``
 target/debug/dicat --help
 ``
-![image](https://github.com/user-attachments/assets/16c7e81a-3068-472f-b1b6-30033fc81b3f)
+![image](./images/1.png)
 
 ## 4. Try to run `catalog` command on a directory, which contains `DICOM` files
 ``
 target/debug/dicat catalog --path 
 ``
-![image](https://github.com/user-attachments/assets/80c241fd-4e91-4e1e-b880-2fae8145e455)
+![image](./images/2.png)
 
 For each patient which `DICOM` files were in the original folder, a rectangle with original directory sub-tree will be printed to the console
 
@@ -31,13 +31,13 @@ For each patient which `DICOM` files were in the original folder, a rectangle wi
 ``
 target/debug/dicat catalog --path --ids ID1,ID2
 ``
-![image](https://github.com/user-attachments/assets/70d5fe58-679a-4e6f-9d69-a1de9143c146)
+![image](./images/3.png)
 
 ## 6. You also have an option to print information about the `DICOM` files in the directory in the `.csv` format, which preserves the original hierarchy of the directory
 ``
 target/debug/dicat catalog --path --as-csv
 ``
-![image](https://github.com/user-attachments/assets/b37b1617-8c53-4fc3-b877-1b89374610ab)
+![image](./images/4.png)
 
 You can use this with `pipes`, when running on `Unix`-like systems 
 
@@ -45,11 +45,11 @@ You can use this with `pipes`, when running on `Unix`-like systems
 ``
 target/debug/dicat restruct --path
 ``
-![image](https://github.com/user-attachments/assets/dba6c817-d73b-4b56-81c3-a6332eb689b1)
+![image](./images/5.png)
 
 You can even check the structure of the newely created directory via the `catalog` command
 
-![image](https://github.com/user-attachments/assets/f695666a-6156-4048-8335-21870e606422)
+![image](./images/6.png)
 
 # Design issues
 * At this point, there's no possibility to provide a path to the directory where you want to `restruct` your file to
