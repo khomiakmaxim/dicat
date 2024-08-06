@@ -58,6 +58,7 @@ You can even check the structure of the newely created directory via the `catalo
 * It would be better to decouple parts, which scaffold the `catalog` structure, and which print it to the stdout by introducing a trait similar to `WriteTree`. Currently, that would require a codebase to be refactored
 * The amount of `tokio` tasks which copy files into the newely created directory when using `restruct` is currenlty hardcoded to be `4`. It's the smallest amount of async I\O tasks, which use the maximum throughput of my SSD. 
   It would be better to either dynamically deduce this number, or, at least, provide a possibility to overwrite it via the argument or tne environment variable
+* On Windows `indicatif` progress bar isn't shown
 
 # Dependency notes:
 * For directory traversal I use `walkdir` for sequential and `jwalk` for parallel cases. Since both of them aren't widely known and are currently only being supported, I'd consider to fork them and work with the forked versions, in order to avoid possible issues in the future
