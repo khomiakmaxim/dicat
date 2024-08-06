@@ -1,9 +1,10 @@
 use clap::{command, Parser};
 use options::{CatalogOptions, RestructOptions};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(version, about)]
-/// 'dicat' is a command line utility for cataloging files of DICOM standard
+/// Command line utility for cataloging files of DICOM standard
 pub struct Args {
     #[command(subcommand)]
     pub command: Command,
@@ -14,12 +15,25 @@ pub struct Args {
 pub enum Command {
     /// Catalog DICOM files in the directory and print the result to the stdout
     Catalog(CatalogOptions),
-    /// Create a new directory with restructured structure as in a catalog
+    /// Create a new directory with a restructured hierarchy based on person IDs, as in a catalog output
     Restruct(RestructOptions),
 }
 
+// TODO: Move this to a separate module
+#[derive(thiserror::Error, Debug)]
+pub enum CliError {
+    #[error("Directory {0} doesn't exist")]
+    DirectoryDoesNotExist(PathBuf),
+    #[error("Directory {0} doesn't contain valid .DICOM files")]
+    FilesDoNotExist(PathBuf),
+    #[error("Directory {0} doesn't contain valid .DICOM files for person's ID {1}")]
+    FilesDoNotExistForPerson(PathBuf, String),
+    #[error("{0} isn't a directory")]
+    NotADirectory(PathBuf),
+}
+
 pub(crate) mod options {
-    use std::path::PathBuf;
+    use std::{ffi::OsString, path::PathBuf};
 
     #[derive(clap::Args)]
     pub struct RestructOptions {
@@ -28,7 +42,7 @@ pub(crate) mod options {
         pub path: PathBuf,
         /// Person IDs(separated by `,`), which DICOM files will be restructured in a new directory
         #[arg(long, value_delimiter = ',')]
-        pub ids: Option<Vec<String>>,
+        pub ids: Option<Vec<OsString>>,
     }
 
     #[derive(clap::Args)]
@@ -37,10 +51,10 @@ pub(crate) mod options {
         /// Path to the directory, which fiels will be viewed in a catalog format(default format can be overwritten by specifying `--keep-structure` flag)
         pub path: PathBuf,
         #[arg(short, long)]
-        /// Keep the original directory hierarchy unchanged
-        pub keep_structure: bool,
+        /// Print names, IDs, and paths of DICOM files in a directory in .CSV format, preserving the original directory hierarchy
+        pub as_csv: bool,
         /// Person IDs(separated by `,`), which DICOM files will be viewed in a catalog format
         #[arg(long, value_delimiter = ',')]
-        pub ids: Option<Vec<String>>, // TODO: Think of using OsString here
+        pub ids: Option<Vec<OsString>>,
     }
 }

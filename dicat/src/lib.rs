@@ -6,7 +6,7 @@ pub mod prompt_parser;
 pub struct App;
 
 impl App {
-    pub fn start(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn start(args: Args) -> anyhow::Result<()> {
         let Args { command } = args;
         match command {
             Command::Catalog(catalog_options) => {

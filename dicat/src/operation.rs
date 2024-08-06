@@ -5,151 +5,50 @@ use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
+    ffi::OsString,
     path::{Path, PathBuf},
-    sync::Arc,
 };
-use tokio::{self, sync::Semaphore, task::JoinSet};
 
 use crate::prompt_parser::options::{CatalogOptions, RestructOptions};
+use utils::{Person, SortedPaths};
 
-/// Represents a person's metadata in a DICOM file.
-#[derive(Debug, Eq, PartialEq, Hash)]
-struct Person {
-    name: String, // TODO: Think of OsString?
-    id: String,
-}
+fn traverse_dir_print_csv<A: AsRef<Path>>(
+    path: A,
+    person_ids: Option<Vec<OsString>>,
+) -> anyhow::Result<()> {
+    let walkdir = walkdir::WalkDir::new(path.as_ref());
 
-/// Relies on underneath paths being sorted in the topological order as it's invariant.
-/// ## Usage
-/// **Example**
-/// ````
-/// use std::path::PathBuf;
-/// use dicat::operation::SortedPaths;
-///
-/// let vec = vec![PathBuf::from("drive/db/a.txt"), PathBuf::from("drive/da/b.txt")];
-/// let sorted_paths = SortedPaths::from(vec);
-/// let inner = sorted_paths.into_inner();
-/// assert_eq!(vec![PathBuf::from("drive/da/b.txt"), PathBuf::from("drive/db/a.txt")], inner);
-/// ````
-pub struct SortedPaths(Vec<PathBuf>); // TODO: Це навіть може бути якийсь Cow?
+    let person_ids = person_ids.unwrap_or_default();
+    let person_ids: HashSet<Cow<'_, str>> =
+        person_ids.iter().map(|x| x.to_string_lossy()).collect();
 
-impl SortedPaths {
-    pub fn from<I: Into<Vec<PathBuf>>>(paths: I) -> Self {
-        let mut paths = paths.into();
-        paths.sort();
-        Self(paths)
-    }
-
-    pub fn into_inner(self) -> Vec<PathBuf> {
-        self.0
-    }
-}
-
-// TODO: Це треба гарненько переписати собі
-impl std::fmt::Display for SortedPaths {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self(paths) = self;
-
-        if paths.is_empty() {
-            writeln!(f)
-        } else {
-            let mut components = split_path_to_components(&paths[0]);
-            let mut tab_count = 0;
-
-            for comp in &components {
-                let tabs = ".".repeat(tab_count);
-                writeln!(f)?;
-                write!(f, "{tabs}")?;
-                write!(f, "|____")?;
-                write!(f, "{comp}")?;
-
-                tab_count += 1;
-            }
-
-            for path in paths.iter().skip(1) {
-                //dbg!(&components);
-                let new_path_components = split_path_to_components(path);
-                //dbg!(&new_path_components);
-
-                let mut same_components_count = 0;
-                while same_components_count < new_path_components.len()
-                    && same_components_count < components.len()
-                {
-                    if new_path_components[same_components_count]
-                        != components[same_components_count]
-                    {
-                        break;
-                    }
-                    same_components_count += 1;
-                }
-                //dbg!(same_components_count);
-
-                tab_count = same_components_count;
-                for comp in new_path_components.iter().skip(same_components_count) {
-                    let tabs = ".".repeat(tab_count);
-                    writeln!(f)?;
-                    write!(f, "{tabs}")?;
-                    write!(f, "|___")?;
-                    write!(f, "{comp}")?;
-
-                    tab_count += 1;
-                }
-
-                components = new_path_components;
-                // //dbg!(&components);
-            }
-
-            write!(f, "")
-        }
-    }
-}
-
-fn traverse_dicom_files_to_csv<A: AsRef<Path>>(path: A, person_ids: Option<Vec<String>>) -> Result<(), Box<dyn std::error::Error>> {
-    let walkdir_iter = walkdir::WalkDir::new(path.as_ref());
-    let person_ids: HashSet<String> = person_ids.unwrap_or_default().into_iter().collect();
-
-    println!("Person's full name, person's ID, path");
-    for entry in walkdir_iter {
+    println!("Full Name,ID,Path");
+    for entry in walkdir {
         let dir_entry = entry.ok().unwrap();
-            if dir_entry.file_type().is_file() {
-                let path = dir_entry.path();
+        if dir_entry.file_type().is_file() {
+            let path = dir_entry.path();
 
-                let Ok(obj) = open_file(&path) else {
-                    continue;
-                };
+            let Ok(obj) = open_file(path) else {
+                continue;
+            };
 
-                let patient_id = obj.element(tags::PATIENT_ID).unwrap().to_str().unwrap();
-                if person_ids.is_empty() || person_ids.contains(patient_id.as_ref()) {
-                    let file_name = path.as_os_str().to_str().unwrap();
-                    let patient_name = obj.element(tags::PATIENT_NAME).unwrap().to_str().unwrap();
+            let patient_id = obj.element(tags::PATIENT_ID).unwrap().to_str().unwrap();
+            if person_ids.is_empty() || person_ids.contains(patient_id.as_ref()) {
+                let patient_name = obj.element(tags::PATIENT_NAME).unwrap().to_str().unwrap();
 
-                    // let person = Person {
-                    //     name: patient_name.into(),
-                    //     id: patient_id.into(),
-                    // };
-                    
-                    println!("{},{},{}", patient_name, patient_id, path.to_string_lossy());
-                    // Some((person, PathBuf::from(file_name)))
-                }
+                println!("{},{},{}", patient_name, patient_id, path.to_string_lossy());
             }
+        }
     }
 
     Ok(())
 }
 
-pub fn catalog(options: CatalogOptions) -> Result<(), Box<dyn std::error::Error>> {
-    let CatalogOptions {
-        path,
-        keep_structure,
-        ids,
-    } = options;
-
-    // dbg!(ids);
-
-    let as_csv = keep_structure;
+pub fn catalog(options: CatalogOptions) -> anyhow::Result<()> {
+    let CatalogOptions { path, as_csv, ids } = options;
 
     if as_csv {
-        traverse_dicom_files_to_csv(path, ids)?;        
+        traverse_dir_print_csv(path, ids)?;
     } else {
         // Taken from github/examples...
         dbg!(1);
@@ -178,19 +77,15 @@ pub fn catalog(options: CatalogOptions) -> Result<(), Box<dyn std::error::Error>
             let Person { name, id } = person;
 
             let name = if name.is_empty() {
-                NOT_LISTED.to_string()
+                NOT_LISTED.into()
             } else {
                 name
             };
 
-            let id = if id.is_empty() {
-                NOT_LISTED.to_string()
-            } else {
-                id
-            };
+            let id = if id.is_empty() { NOT_LISTED.into() } else { id };
 
-            let id = format!("ID: {}", id);
-            let name = format!("Full Name: {}", name);
+            let id = format!("ID: {}", id.to_string_lossy());
+            let name = format!("Full Name: {}", name.to_string_lossy());
 
             let mut table = table!([FG -> id], [FG -> name], [paths]);
             table.set_format(table_format);
@@ -201,8 +96,8 @@ pub fn catalog(options: CatalogOptions) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-pub fn restruct(options: RestructOptions) -> Result<(), Box<dyn std::error::Error>> {
-    const MAX_SEMAPHORE_PERMITS: usize = 100; // Було б дуже файно то додати собі ще
+pub fn restruct(options: RestructOptions) -> anyhow::Result<()> {
+    // const MAX_SEMAPHORE_PERMITS: usize = 100; // Було б дуже файно то додати собі ще
 
     let RestructOptions { path, ids } = options;
 
@@ -231,7 +126,6 @@ pub fn restruct(options: RestructOptions) -> Result<(), Box<dyn std::error::Erro
                 for (person, sorted_paths) in structure {
                     // let permit = semaphore.acquire().await.unwrap();
 
-
                     let mut persons_dir = folder_name.clone();
                     handles.push(tokio::task::spawn(async move {
                         // let name = "some_random";
@@ -242,7 +136,7 @@ pub fn restruct(options: RestructOptions) -> Result<(), Box<dyn std::error::Erro
 
                         // println!("\n{}\n\n, {}", person.id, sorted_paths);
 
-                        let SortedPaths(sorted_paths) = sorted_paths;
+                        let sorted_paths = sorted_paths.into_inner();
 
                         for path in sorted_paths {
                             let filename = path.file_name().unwrap().to_string_lossy();
@@ -269,10 +163,11 @@ pub fn restruct(options: RestructOptions) -> Result<(), Box<dyn std::error::Erro
 // TODO: Think of someting way more efficient here
 fn get_structure(
     path: PathBuf,
-    person_ids: Option<Vec<String>>,
-) -> Result<HashMap<Person, SortedPaths>, Box<dyn std::error::Error>> {
-    // lazy static?
-    let person_ids: HashSet<String> = person_ids.unwrap_or_default().into_iter().collect();
+    person_ids: Option<Vec<OsString>>,
+) -> anyhow::Result<HashMap<Person, SortedPaths>> {
+    let person_ids = person_ids.unwrap_or_default();
+    let person_ids: HashSet<Cow<'_, str>> =
+        person_ids.iter().map(|x| x.to_string_lossy()).collect();
 
     let v: Vec<(Person, PathBuf)> = jwalk::WalkDir::new(path)
         .parallelism(Parallelism::RayonNewPool(8)) // TODO: move this out to config
@@ -295,8 +190,8 @@ fn get_structure(
                     let patient_name = obj.element(tags::PATIENT_NAME).unwrap().to_str().unwrap();
 
                     let person = Person {
-                        name: patient_name.into(),
-                        id: patient_id.into(),
+                        name: patient_name.to_string().into(),
+                        id: patient_id.to_string().into(),
                     };
 
                     Some((person, PathBuf::from(file_name)))
@@ -321,24 +216,12 @@ fn get_structure(
         .into_iter()
         .par_bridge()
         .map(|(person, files)| {
-            let paths = SortedPaths::from(files);
+            let paths = SortedPaths::new(files);
             (person, paths)
         })
         .collect();
 
     Ok(map_with_sorted_paths)
-}
-
-// TODO: Write documentation
-// TODO: Think of different OSs here
-fn split_path_to_components<A>(path: &A) -> Vec<Cow<'_, str>>
-where
-    A: AsRef<Path> + ?Sized,
-{
-    let path = path.as_ref();
-    path.components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect()
 }
 
 // impl DirTree {
@@ -459,3 +342,130 @@ where
 //         Ok(dir_tree)
 //     }
 // }
+
+pub mod utils {
+    use std::{
+        borrow::Cow,
+        ffi::OsString,
+        path::{Path, PathBuf},
+    };
+
+    /// Represents a person's data in a DICOM file.
+    #[derive(Debug, Eq, PartialEq, Hash)]
+    pub struct Person {
+        pub name: OsString,
+        pub id: OsString,
+    }
+
+    /// Relies on inner paths being sorted in the topological order as its invariant.
+    /// ## Usage
+    /// **Example**
+    /// ```
+    /// use std::path::PathBuf;
+    /// use dicat::operation::utils::SortedPaths;
+    ///
+    /// let vec = vec![PathBuf::from("drive/db/a.txt"), PathBuf::from("drive/da/b.txt")];
+    /// let sorted_paths = SortedPaths::from(vec);
+    /// let inner = sorted_paths.into_inner();
+    /// assert_eq!(vec![PathBuf::from("drive/da/b.txt"), PathBuf::from("drive/db/a.txt")], inner);
+    /// ````    
+    /// **Example**
+    /// ```compile_fail
+    /// use std::path::PathBuf;
+    /// use dicat::operation::utils::SortedPaths;
+    ///
+    /// let vec = vec![PathBuf::from("drive/db/a.txt"), PathBuf::from("drive/da/b.txt")];
+    /// // line below doesn't compile
+    /// let sorted_paths = SortedPaths(vec![PathBuf::from("drive/db/a.txt"), PathBuf::from("drive/da/b.txt")]);
+    /// ````   
+    pub struct SortedPaths(Vec<PathBuf>);
+
+    impl SortedPaths {
+        /// Creates [`SortedPaths`] new type and sorts the inner collection of [`paths`] in the topological order.
+        pub fn new<I: Into<Vec<PathBuf>>>(paths: I) -> Self {
+            let mut paths = paths.into();
+            paths.sort();
+            Self(paths)
+        }
+
+        pub fn into_inner(self) -> Vec<PathBuf> {
+            self.0
+        }
+    }
+
+    impl std::fmt::Display for SortedPaths {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let Self(paths) = self;
+
+            if !paths.is_empty() {
+                // First traversal for finding start and end of vertical lines
+
+                // let mut components =
+            }
+
+            Ok(())
+        }
+    }
+
+    // TODO: Це треба гарненько переписати собі
+    // impl std::fmt::Display for SortedPaths {
+    //     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    //         let Self(paths) = self;
+
+    //         if !paths.is_empty() {
+    //             let mut components = split_path_to_components(&paths[0]);
+    //             let mut current_point_count = 0;
+
+    //             let dir_name = &components[0];
+
+    //             // write!(f, "|")?;
+    //             write!(f, "{dir_name}")?;
+
+    //             for comp in components.iter().skip(1) {
+    //                 let tabs = ".".repeat(current_point_count);
+    //                 writeln!(f)?;
+    //                 write!(f, "{tabs}")?;
+    //                 write!(f, "|____")?;
+    //                 write!(f, "{comp}")?;
+
+    //                 current_point_count += 1;
+    //             }
+
+    //             for path in paths.iter().skip(1) {
+    //                 let next_path_components = split_path_to_components(path);
+
+    //                 let common_prefix_len = next_path_components
+    //                     .iter()
+    //                     .zip(components.iter())
+    //                     .take_while(|(a, b)| a == b)
+    //                     .count();
+
+    //                 current_point_count = common_prefix_len;
+    //                 for comp in next_path_components.iter().skip(common_prefix_len) {
+    //                     let tabs = ".".repeat(current_point_count);
+    //                     writeln!(f)?;
+    //                     write!(f, "{tabs}")?;
+    //                     write!(f, "|____")?;
+    //                     write!(f, "{comp}")?;
+
+    //                     current_point_count += 1;
+    //                 }
+
+    //                 components = next_path_components;
+    //             }
+    //         }
+
+    //         Ok(())
+    //     }
+    // }
+
+    fn split_path_to_components<A>(path: &A) -> Vec<Cow<'_, str>>
+    where
+        A: AsRef<Path> + ?Sized,
+    {
+        let path = path.as_ref();
+        path.components()
+            .map(|component| component.as_os_str().to_string_lossy())
+            .collect()
+    }
+}
