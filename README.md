@@ -47,7 +47,7 @@ target/debug/dicat restruct --path
 ``
 ![image](https://github.com/user-attachments/assets/dba6c817-d73b-4b56-81c3-a6332eb689b1)
 
-You can check the structure of the newely created directory via the `catalog` command
+You can even check the structure of the newely created directory via the `catalog` command
 
 ![image](https://github.com/user-attachments/assets/f695666a-6156-4048-8335-21870e606422)
 
