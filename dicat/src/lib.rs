@@ -3,7 +3,7 @@ use utils::errors::CliResult;
 
 pub mod operation;
 pub mod prompt_parser;
-mod utils;
+pub mod utils;
 
 pub use utils::errors;
 

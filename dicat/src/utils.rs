@@ -16,10 +16,10 @@ pub struct Person {
 /// **Example**
 /// ```
 /// use std::path::PathBuf;
-/// use dicat::operation::utils::SortedPaths;
+/// use dicat::utils::SortedPaths;
 ///
 /// let vec = vec![PathBuf::from("drive/db/a.txt"), PathBuf::from("drive/da/b.txt")];
-/// let sorted_paths = SortedPaths::from(vec);
+/// let sorted_paths = SortedPaths::new(vec);
 /// let inner = sorted_paths.into_inner();
 /// assert_eq!(vec![PathBuf::from("drive/da/b.txt"), PathBuf::from("drive/db/a.txt")], inner);
 /// ````    
@@ -32,6 +32,7 @@ pub struct Person {
 /// // line below doesn't compile
 /// let sorted_paths = SortedPaths(vec![PathBuf::from("drive/db/a.txt"), PathBuf::from("drive/da/b.txt")]);
 /// ````   
+#[derive(Debug, PartialEq, Eq)]
 pub struct SortedPaths(Vec<PathBuf>);
 
 impl SortedPaths {
@@ -50,19 +51,19 @@ impl SortedPaths {
 // TODO: Currently this prints the directory sub-tree like this:
 // --------------------
 //  root
-//  |__sub_dir1
-//  .|__sub_sub_dir1
-//  ..|__sub_sub_sub_dir1
-//  |__sub_dir2
+//  l__sub_dir1
+//  .l__sub_sub_dir1
+//  ..l__sub_sub_sub_dir1
+//  l__sub_dir2
 // --------------------
 //  It would be easier to read if the  sub-directories were
 // horizontally connected across the parent's directory like this:
 // --------------------
 //  root
-//  |__sub_dir1
-//  ||__sub_sub_dir1
-//  |.|__sub_sub_sub_dir1
-//  |__sub_dir2
+//  l__sub_dir1
+//  ll__sub_sub_dir1
+//  l.l__sub_sub_sub_dir1
+//  l__sub_dir2
 // --------------------
 
 impl std::fmt::Display for SortedPaths {
@@ -70,7 +71,7 @@ impl std::fmt::Display for SortedPaths {
         let Self(paths) = self;
 
         if !paths.is_empty() {
-            let mut components = split_path_to_components(&paths[0]);
+            let mut components = split_path_into_components(&paths[0]);
             let mut indentation_amount = 1;
 
             let dir_name = &components[0];
@@ -86,7 +87,7 @@ impl std::fmt::Display for SortedPaths {
 
             // Print the next paths, relying on the calculated indentation
             for path in paths.iter().skip(1) {
-                let next_path_components = split_path_to_components(path);
+                let next_path_components = split_path_into_components(path);
                 let common_prefix_len = next_path_components
                     .iter()
                     .zip(components.iter())
@@ -120,7 +121,7 @@ fn write_path_component(
     Ok(())
 }
 
-fn split_path_to_components<A>(path: &A) -> Vec<Cow<'_, str>>
+fn split_path_into_components<A>(path: &A) -> Vec<Cow<'_, str>>
 where
     A: AsRef<Path> + ?Sized,
 {

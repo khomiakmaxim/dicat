@@ -17,13 +17,12 @@ use crate::{
     utils::{Person, SortedPaths},
 };
 
-/// Catalogs DICOM files in the directory and print the result to the stdout.
+/// Catalogs DICOM files in the directory and prints the result to the stdout.
 pub fn catalog(options: CatalogOptions) -> CliResult<()> {
     let CatalogOptions { path, as_csv, ids } = options;
 
-    // let start_time = std::time::SystemTime::now();
     if as_csv {
-        // TODO: It would be reasonable to log inner errors as well
+        // TODO: Add  Logging of the inner unrepresentable errors
         traverse_sequentially_and_print_csv(path, ids).map_err(|_err| CliError::GeneralError)?;
     } else {
         // Taken from <https://github.com/phsym/prettytable-rs/blob/4d66e6ebddcd52b641369042b68959ad323d9ad0/examples/formatting.rs#L75>
@@ -45,8 +44,10 @@ pub fn catalog(options: CatalogOptions) -> CliResult<()> {
             .padding(1, 1)
             .build();
 
+        // Get the structure, which can be printed
         let catalog = scaffold_catalog(path, ids)?;
 
+        // Print the structure using `prettytable::table!`
         for (person, paths) in catalog {
             const NOT_LISTED: &str = "[NOT LISTED]";
             let Person { name, id } = person;
@@ -56,7 +57,6 @@ pub fn catalog(options: CatalogOptions) -> CliResult<()> {
             } else {
                 name
             };
-
             let id = if id.is_empty() { NOT_LISTED.into() } else { id };
 
             let id = format!("ID: {}", id.to_string_lossy());
@@ -68,25 +68,15 @@ pub fn catalog(options: CatalogOptions) -> CliResult<()> {
         }
     }
 
-    // let end_time = std::time::SystemTime::now();
-    // let duration = end_time
-    //     .duration_since(start_time)
-    //     .expect("Time went backwards");
-
-    // println!("Catalog bench: {:?}", duration);
-
     Ok(())
 }
 
+/// Creates a new directory with restructured structure for each patient, which contains patient's files directly.
 pub fn restruct(options: RestructOptions) -> CliResult<()> {
     // Amount of tasks spawned for asynchronous copying. Has been picked experimentally at this moment.
     // On 'SK hynix PC601 HFS512GD9TNG-L2A0A' SSD less than 4 tasks occupy < 100% of possible throughput
     const TASKS_AMOUNT: usize = 4;
-
     let RestructOptions { path, ids } = options;
-
-    // TODO: Add loading animation and more logs here
-    // println!("Started restructuring...");
     let catalog = scaffold_catalog(path, ids)?;
     let catalog: HashMap<Person, Vec<PathBuf>> = catalog
         .into_iter()
@@ -94,7 +84,6 @@ pub fn restruct(options: RestructOptions) -> CliResult<()> {
         .collect();
 
     if !catalog.is_empty() {
-        // let start_time = std::time::SystemTime::now();
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -121,15 +110,9 @@ pub fn restruct(options: RestructOptions) -> CliResult<()> {
             .expect("Failed building the Runtime")
             .block_on(async move {
                 // Copy corresponding .DICOM files into newely created directories
+                // asynchrnously in `TASK_AMOUNT` tasks
                 copy_files_in_tasks(catalog, TASKS_AMOUNT, &new_root_path).await;
             });
-
-        // let end_time = std::time::SystemTime::now();
-        // let duration = end_time
-        //     .duration_since(start_time)
-        //     .expect("Time went backwards");
-
-        // println!("Restruct bench: {:?}", duration);
     }
 
     Ok(())
@@ -150,18 +133,6 @@ async fn copy_files_in_tasks(
 
     let files_per_task = files_amount / num_tasks;
     let remainder = files_amount % num_tasks;
-
-    println!("Restructuring...");
-
-    let pb = ProgressBar::new(files_amount as u64);
-    pb.set_style(
-        ProgressStyle::with_template("[{elapsed_precise}] [{wide_bar:.blue}] ({eta})")
-            .unwrap()
-            .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
-                write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap()
-            })
-            .progress_chars("#>-"),
-    );
 
     // Distribute file chunks evenly between tasks
     for (i, chunk) in chunk_sizes.iter_mut().enumerate().take(num_tasks) {
@@ -196,23 +167,32 @@ async fn copy_files_in_tasks(
         task_handles.push(handle);
     }
 
+    println!("Restructuring...");
     let mut files_copied = 0;
+
+    // Progress bar for better user experience
+    let pb = ProgressBar::new(files_amount as u64);
+    pb.set_style(
+        ProgressStyle::with_template("[{elapsed_precise}] [{wide_bar:.blue}] ({eta})")
+            .unwrap()
+            .with_key("eta", |state: &ProgressState, w: &mut dyn Write| {
+                write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap()
+            })
+            .progress_chars("#>-"),
+    );
 
     for handle in task_handles {
         let files_added = handle.await.unwrap();
 
         while files_copied < files_amount {
             files_copied += files_added;
-            // let new = min( + 1200, total_size);
-            // downloaded = new;
-            pb.set_position(files_copied as u64);
+            // Sleeping for better user experience while rendering the progress bar for small
+            // directories. It is beningn, since won't block any thread
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            // thread::sleep(Duration::from_millis(12));
         }
     }
 
     println!("Restructured into '{}'", root_path.to_string_lossy());
-    // futures::future::join_all(task_handles).await;
 }
 
 /// For a given [`path`], traverse the directory in parallel threads and scaffold
@@ -269,8 +249,6 @@ fn scaffold_catalog(
             }
         })
         .collect();
-
-    // TODO: Refactor 2 statements below
 
     // Merge results obtained from parallel threads
     let map: HashMap<Person, Vec<PathBuf>> =
@@ -333,6 +311,73 @@ fn traverse_sequentially_and_print_csv<A: AsRef<Path>>(
     if print_headers {
         Err(CliError::FilesDoNotExist(path.into()))
     } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scaffold_catalog() -> CliResult<()> {
+        let pb = PathBuf::from("test_small_dir");
+        let scaffolded_catalog = scaffold_catalog(pb, None)?;
+
+        let mut expected: HashMap<Person, SortedPaths> = HashMap::new();
+
+        let p1 = Person {
+            name: "".into(),
+            id: "98.12.21".into(),
+        };
+
+        let p2 = Person {
+            name: "CMB-GEC-MSB-06857".into(),
+            id: "CMB-GEC-MSB-06857".into(),
+        };
+
+        expected.insert(
+            p1,
+            SortedPaths::new(vec![
+                PathBuf::from("test_small_dir/56364404.dcm"),
+                PathBuf::from("test_small_dir/56364403.dcm"),
+            ]),
+        );
+        expected.insert(
+            p2,
+            SortedPaths::new(vec![
+                PathBuf::from("test_small_dir/1-013.dcm"),
+                PathBuf::from("test_small_dir/1-012.dcm"),
+                PathBuf::from("test_small_dir/1-011.dcm"),
+                PathBuf::from("test_small_dir/1-010.dcm"),
+            ]),
+        );
+
+        assert_eq!(scaffolded_catalog, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_scaffold_catalog_with_ids() -> CliResult<()> {
+        let pb = PathBuf::from("test_small_dir");
+        let scaffolded_catalog = scaffold_catalog(pb, Some(vec!["98.12.21".into()]))?;
+
+        let mut expected: HashMap<Person, SortedPaths> = HashMap::new();
+
+        let p1 = Person {
+            name: "".into(),
+            id: "98.12.21".into(),
+        };
+
+        expected.insert(
+            p1,
+            SortedPaths::new(vec![
+                PathBuf::from("test_small_dir/56364404.dcm"),
+                PathBuf::from("test_small_dir/56364403.dcm"),
+            ]),
+        );
+
+        assert_eq!(scaffolded_catalog, expected);
         Ok(())
     }
 }
