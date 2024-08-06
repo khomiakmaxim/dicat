@@ -62,3 +62,13 @@ You can even check the structure of the newely created directory via the `catalo
 # Dependency notes:
 * For directory traversal I use `walkdir` for sequential and `jwalk` for parallel cases. Since both of them aren't widely known and are currently only being supported, I'd consider to fork them and work with the forked versions, in order to avoid possible issues in the future
 * For retreiving information about each patient I use `dicom` crate, which loads the entire contents of the file into the memory, which is not currently necessary
+
+# Environment
+It has been tested on both Linux(Ubuntu 22.04) and Windows 10.
+
+# Scaling
+40 GiB directory, filled with all `.DICOM` files with disabled file system cache takes:
+* `40s` for `target/release/dicat catalog` (this can be improved by reading only necessary information from `DICOM` file)
+* `4m17s` for `target/release/dicat restuct`
+
+Since all algorithms are linearly dependent from the amount of the files in directory and their size, performance must scale reasonably well
