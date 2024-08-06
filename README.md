@@ -1,7 +1,7 @@
 # Dicat - DICOM Catalog
 Command line utility that catalogs DICOM files
 
-#Usage
+# Usage
 ## 1. Build the project
 ``
 cargo b
