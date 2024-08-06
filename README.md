@@ -22,7 +22,7 @@ target/debug/dicat --help
 target/debug/dicat catalog --path 
 ``
 ![image](https://github.com/user-attachments/assets/80c241fd-4e91-4e1e-b880-2fae8145e455)
-For each patient, which `DICOM` files were in the original folder a rectangle with original directory sub-tree will be printed to the console
+For each patient which `DICOM` files were in the original folder, a rectangle with original directory sub-tree will be printed to the console
 
 ## 5. You can choose a subset of patients via providing `--ids` option and listing patient's IDs separated by `,`
 
