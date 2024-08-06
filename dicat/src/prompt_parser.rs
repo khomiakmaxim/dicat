@@ -1,6 +1,5 @@
 use clap::{command, Parser};
 use options::{CatalogOptions, RestructOptions};
-use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -17,19 +16,6 @@ pub enum Command {
     Catalog(CatalogOptions),
     /// Create a new directory with a restructured hierarchy based on person IDs, as in a catalog output
     Restruct(RestructOptions),
-}
-
-// TODO: Move this to a separate module
-#[derive(thiserror::Error, Debug)]
-pub enum CliError {
-    #[error("Directory {0} doesn't exist")]
-    DirectoryDoesNotExist(PathBuf),
-    #[error("Directory {0} doesn't contain valid .DICOM files")]
-    FilesDoNotExist(PathBuf),
-    #[error("Directory {0} doesn't contain valid .DICOM files for person's ID {1}")]
-    FilesDoNotExistForPerson(PathBuf, String),
-    #[error("{0} isn't a directory")]
-    NotADirectory(PathBuf),
 }
 
 pub(crate) mod options {
