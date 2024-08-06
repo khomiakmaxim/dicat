@@ -15,40 +15,8 @@ use crate::{
     utils::{Person, SortedPaths},
 };
 
-fn traverse_sequentially_and_print_csv<A: AsRef<Path>>(
-    path: A,
-    person_ids: Option<Vec<OsString>>,
-) -> CliResult<()> {
-    let walkdir = walkdir::WalkDir::new(path.as_ref());
-
-    let person_ids = person_ids.unwrap_or_default();
-    let person_ids: HashSet<Cow<'_, str>> =
-        person_ids.iter().map(|x| x.to_string_lossy()).collect();
-
-    println!("Full Name,ID,Path");
-    for entry in walkdir {
-        let dir_entry = entry.ok().unwrap();
-        if dir_entry.file_type().is_file() {
-            let path = dir_entry.path();
-
-            let Ok(obj) = open_file(path) else {
-                continue;
-            };
-
-            let patient_id = obj.element(tags::PATIENT_ID).unwrap().to_str().unwrap();
-            if person_ids.is_empty() || person_ids.contains(patient_id.as_ref()) {
-                let patient_name = obj.element(tags::PATIENT_NAME).unwrap().to_str().unwrap();
-
-                println!("{},{},{}", patient_name, patient_id, path.to_string_lossy());
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Prints 
-pub fn catalog(options: CatalogOptions) -> Result<(), CliError> {
+/// Catalogs DICOM files in the directory and print the result to the stdout.
+pub fn catalog(options: CatalogOptions) -> CliResult<()> {
     let CatalogOptions { path, as_csv, ids } = options;
 
     let start_time = std::time::SystemTime::now();
@@ -108,6 +76,63 @@ pub fn catalog(options: CatalogOptions) -> Result<(), CliError> {
     Ok(())
 }
 
+pub fn restruct(options: RestructOptions) -> CliResult<()> {
+    // Amount of tasks spawned for asynchronous copying. Has been picked experimentally at this moment.
+    // On 'SK hynix PC601 HFS512GD9TNG-L2A0A' SSD less than 4 tasks occupy < 100% of possible throughput
+    const TASKS_AMOUNT: usize = 4;
+
+    let RestructOptions { path, ids } = options;
+
+    // TODO: Add loading animation and more logs here
+    // println!("Started restructuring...");
+    let catalog = scaffold_catalog(path, ids)?;
+    let catalog: HashMap<Person, Vec<PathBuf>> = catalog
+        .into_iter()
+        .map(|(x, paths)| (x, paths.into_inner()))
+        .collect();
+
+    if !catalog.is_empty() {
+        // let start_time = std::time::SystemTime::now();
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Create `root` directory
+        let new_root = format!("dicat_{}", timestamp);
+        let new_root_path = PathBuf::from(new_root);
+
+        std::fs::create_dir(&new_root_path)
+            .map_err(|_| CliError::CreatingDirectoryError(PathBuf::from(&new_root_path)))?;
+
+        // For each person, create `root/person_id` directory
+        for person in catalog.keys() {
+            let mut persons_path = new_root_path.clone();
+            persons_path.push(PathBuf::from(&person.id));
+            std::fs::create_dir(&persons_path)
+                .map_err(|_| CliError::CreatingDirectoryError(PathBuf::from(&persons_path)))?;
+        }
+
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("Failed building the Runtime")
+            .block_on(async move {
+                // Copy corresponding .DICOM files into newely created directories
+                copy_files_in_tasks(catalog, TASKS_AMOUNT, &new_root_path).await;
+            });
+
+        // let end_time = std::time::SystemTime::now();
+        // let duration = end_time
+        //     .duration_since(start_time)
+        //     .expect("Time went backwards");
+
+        // println!("Restruct bench: {:?}", duration);
+    }
+
+    Ok(())
+}
+
 /// Asynchronously in [`num_tasks`] tokio tasks copies .DICOM files into a new `dicat_(timestamp)/(person.id)` directory.
 async fn copy_files_in_tasks(
     file_map: HashMap<Person, Vec<PathBuf>>,
@@ -125,8 +150,8 @@ async fn copy_files_in_tasks(
     let remainder = files_amount % num_tasks;
 
     // Distribute file chunks evenly between tasks
-    for i in 0..num_tasks {
-        chunk_sizes[i] = files_per_task + if i < remainder { 1 } else { 0 };
+    for (i, chunk) in chunk_sizes.iter_mut().enumerate().take(num_tasks) {
+        *chunk = files_per_task + if i < remainder { 1 } else { 0 };
     }
 
     let mut pairs_iter = file_map
@@ -154,63 +179,6 @@ async fn copy_files_in_tasks(
     }
 
     futures::future::join_all(task_handles).await;
-}
-
-pub fn restruct(options: RestructOptions) -> CliResult<()> {
-    // Amount of tasks spawned for asynchronous copying. Has been picked experimentally at this moment.
-    // On 'SK hynix PC601 HFS512GD9TNG-L2A0A' SSD less than 4 tasks occupy < 100% of possible throughput
-    const TASKS_AMOUNT: usize = 4;
-
-    let RestructOptions { path, ids } = options;
-
-    // TODO: Add loading animation and more logs here
-    // println!("Started restructuring...");
-    let structure = scaffold_catalog(path, ids)?;
-    let structure: HashMap<Person, Vec<PathBuf>> = structure
-        .into_iter()
-        .map(|(x, paths)| (x, paths.into_inner()))
-        .collect();
-
-    if !structure.is_empty() {
-        // let start_time = std::time::SystemTime::now();
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        // Create `root` directory
-        let new_root = format!("dicat_{}", timestamp);
-        let new_root_path = PathBuf::from(new_root);
-
-        std::fs::create_dir(&new_root_path)
-            .map_err(|_| CliError::CreatingDirectoryError(PathBuf::from(&new_root_path)))?;
-
-        // For each person, create `root/person_id` directory
-        for (person, _) in &structure {
-            let mut persons_path = new_root_path.clone();
-            persons_path.push(PathBuf::from(&person.id));
-            std::fs::create_dir(&persons_path)
-                .map_err(|_| CliError::CreatingDirectoryError(PathBuf::from(&persons_path)))?;
-        }
-
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("Failed building the Runtime")
-            .block_on(async move {
-                // Copy corresponding .DICOM files into newely created directories
-                copy_files_in_tasks(structure, TASKS_AMOUNT, &new_root_path).await;
-            });
-
-        // let end_time = std::time::SystemTime::now();
-        // let duration = end_time
-        //     .duration_since(start_time)
-        //     .expect("Time went backwards");
-
-        // println!("Restruct bench: {:?}", duration);
-    }
-
-    Ok(())
 }
 
 /// For a given [`path`], traverse the directory in parallel threads and scaffold
@@ -248,7 +216,7 @@ fn scaffold_catalog(
                     return None;
                 };
 
-                let id = obj.element(tags::PATIENT_ID).unwrap().to_str().unwrap(); // TODO: Remove unwrap
+                let id = obj.element(tags::PATIENT_ID).unwrap().to_str().unwrap(); // TODO: Remove unwrap()
                 if patients_id.is_empty() || patients_id.contains(id.as_ref()) {
                     let file_name = path.as_os_str().to_string_lossy();
                     let patient_name = obj.element(tags::PATIENT_NAME).unwrap().to_str().unwrap(); // TODO: Remove unwrap()
@@ -277,7 +245,7 @@ fn scaffold_catalog(
                 acc.entry(person).or_default().push(file);
                 acc
             });
-    
+
     // Sort paths in topological order for each patient
     let map_with_sorted_paths = map
         .into_iter()
@@ -289,4 +257,48 @@ fn scaffold_catalog(
         .collect();
 
     Ok(map_with_sorted_paths)
+}
+
+fn traverse_sequentially_and_print_csv<A: AsRef<Path>>(
+    path: A,
+    person_ids: Option<Vec<OsString>>,
+) -> CliResult<()> {
+    let path = path.as_ref();
+    let walkdir = walkdir::WalkDir::new(path);
+
+    let person_ids = person_ids.unwrap_or_default();
+    let person_ids: HashSet<Cow<'_, str>> =
+        person_ids.iter().map(|x| x.to_string_lossy()).collect();
+
+    let mut print_headers = true;
+    for entry in walkdir {
+        let Ok(entry) = entry else {
+            return Err(CliError::GeneralError);
+        };
+
+        if entry.file_type().is_file() {
+            let path = entry.path();
+
+            let Ok(obj) = open_file(path) else {
+                // TODO: Log warn
+                continue;
+            };
+
+            let patient_id = obj.element(tags::PATIENT_ID).unwrap().to_str().unwrap(); // TODO: Remove unwrap()
+            if person_ids.is_empty() || person_ids.contains(patient_id.as_ref()) {
+                if print_headers {
+                    println!("Name,ID,Path");
+                    print_headers = false;
+                }
+                let patient_name = obj.element(tags::PATIENT_NAME).unwrap().to_str().unwrap(); // TODO: Remove unwrap()
+                println!("{},{},{}", patient_name, patient_id, path.to_string_lossy());
+            }
+        }
+    }
+
+    if print_headers {
+        Err(CliError::FilesDoNotExist(path.into()))
+    } else {
+        Ok(())
+    }
 }

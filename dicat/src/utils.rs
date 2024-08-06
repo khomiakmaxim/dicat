@@ -109,7 +109,7 @@ impl std::fmt::Display for SortedPaths {
 
 fn write_path_component(
     f: &mut std::fmt::Formatter<'_>,
-    component: &Cow<'_, str>,
+    component: &str,
     indentation_amount: usize,
 ) -> std::fmt::Result {
     let dots = ".".repeat(indentation_amount);
