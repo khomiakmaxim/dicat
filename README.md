@@ -46,12 +46,12 @@ You can check the structure of the newely created directory via the `catalog` co
 ![image](https://github.com/user-attachments/assets/f695666a-6156-4048-8335-21870e606422)
 
 # Design issues
-* At this point there's no possibility to provide a path to the directory, where you want to `restruct` your file
+* At this point, there's no possibility to provide a path to the directory where you want to `restruct` your file
 
 # Codebase issues
-* It would be better to decouple parts, which scaffold the `catalog` structure, and which print it to the stdout and introducing something trait like `WriteTree`. Currently, that would require a bit of refactoring
-* The amount of `tokio` tasks, that copy files into the newely created directory when using `restruct` is currenlty hardcoded to be `4`. It's the smallest amount of async I\O tasks, which use the maximum throughput of my SSD. 
-  Would be better to either dynamically deduce this number, or, at least, provide a possibility to overwrite it via the argument or tne environment variable
+* It would be better to decouple parts, which scaffold the `catalog` structure, and which print it to the stdout by introducing a trait similar to `WriteTree`. Currently, that would require a codebase to be refactored
+* The amount of `tokio` tasks which copy files into the newely created directory when using `restruct` is currenlty hardcoded to be `4`. It's the smallest amount of async I\O tasks, which use the maximum throughput of my SSD. 
+  It would be better to either dynamically deduce this number, or, at least, provide a possibility to overwrite it via the argument or tne environment variable
 
 # Dependency notes:
-
+* For directory traversal I use `walkdir` for sequential and `jwalk` for parallel cases. Since both of them aren't widely known and are currently only being supported, I'd consider to fork them and work with the forked versions, in order to avoid possible issues in the future
